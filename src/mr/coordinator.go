@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
 	"sync"
 	"time"
 )
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
 
 /*type Coordinator struct {
 	// Your definitions here.
@@ -55,9 +55,9 @@ func createTaskId(taskType TaskType, Id int) string {
 func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskReply) error {
 	if arg.LastTaskId != -1 {
 		c.mu.Lock()
-		taskId := createTaskId(arg.LastTaskType, arg.LastTaskId)
-		if task, ok := c.tasks[taskId]; ok && task.WorkId == arg.WorkId {
-			log.Printf("%d finish %s-%d task", arg.WorkId, arg.LastTaskType, arg.LastTaskId)
+		LastTaskId := createTaskId(arg.LastTaskType, arg.LastTaskId)
+		if LastTask, ok := c.tasks[LastTaskId]; ok && LastTask.WorkId == arg.WorkId {
+			log.Printf("%d finish %s task", arg.WorkId, LastTaskId)
 			if arg.LastTaskType == TaskTypeMap {
 				for i := 0; i < c.nReduce; i++ {
 					err := os.Rename(tmpMapOutFile(arg.WorkId, arg.LastTaskId, i), finalMapOutFile(arg.LastTaskId, i))
@@ -76,12 +76,13 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 						tmpReduceOutFile(arg.WorkId, arg.LastTaskId), err)
 				}
 			}
+			//log.Printf("The number of remaining tasks is %d\n", len(c.tasks))
 			if len(c.tasks) == 1 && c.state == coodinatorStateInit {
 				c.state = coodinatorStateMapFinished
-			} else if len(c.tasks) == 1 && c.state == coodinatorStateFinished {
+			} else if len(c.tasks) == 1 && c.state == coodinatorStateMapFinished {
 				c.state = coodinatorStateFinished
 			}
-			delete(c.tasks, taskId)
+			delete(c.tasks, LastTaskId)
 			if len(c.tasks) == 0 {
 				c.cutover()
 			}
@@ -95,13 +96,15 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	log.Printf("Assign %d task %d to worker %dls \n", task.TaskType, task.Id, arg.WorkId)
+	taskIdName := createTaskId(task.TaskType, task.Id)
+	log.Printf("Assign %s task to work, the workId: %d \n", taskIdName, arg.WorkId)
 	// update tasks
 	task.WorkId = arg.WorkId
 	task.DeadLine = time.Now().Add(10 * time.Second)
-	c.tasks[createTaskId(task.TaskType, task.Id)] = task
+	c.tasks[taskIdName] = task
 
 	reply.TaskId = task.Id
+	reply.TaskType = task.TaskType
 	reply.MapInputFile = task.MapInputFile
 	reply.NMap = c.nMap
 	reply.NReduce = c.nReduce
@@ -109,6 +112,7 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 }
 func (c *Coordinator) cutover() {
 	if c.state == coodinatorStateMapFinished {
+		//log.Printf("The number of remaining tasks is %d\n", len(c.tasks))
 		log.Printf("All MAP tasks have already finished! REDUCE tasks begin ...")
 		for i := 0; i < c.nReduce; i++ {
 			task := Task{
@@ -180,7 +184,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			MapInputFile: file,
 			WorkId:       -1,
 		}
-		log.Printf("Type: %s", task.TaskType)
+		log.Printf("TaskId: %s, Type: %d,  MapTaskInuputFile: %s", createTaskId(task.TaskType, task.Id), task.TaskType, task.MapInputFile)
 		c.tasks[createTaskId(task.TaskType, task.Id)] = task
 		c.toDoTasks <- task
 	}
@@ -193,7 +197,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			c.mu.Lock()
 			for _, task := range c.tasks {
 				if task.WorkId != -1 && time.Now().After(task.DeadLine) {
-					log.Printf("%d task %s %d run timeout, will run again", task.WorkId, task.TaskType, task.Id)
+					taskId := createTaskId(task.TaskType, task.Id)
+					log.Printf("%d task %s run timeout, will run again", task.WorkId, taskId)
 					task.WorkId = -1
 					c.toDoTasks <- task
 				}

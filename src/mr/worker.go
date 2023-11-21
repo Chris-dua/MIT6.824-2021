@@ -2,14 +2,14 @@ package mr
 
 import (
 	"fmt"
+	"hash/fnv"
 	"io"
+	"log"
+	"net/rpc"
 	"os"
 	"sort"
 	"strings"
 )
-import "log"
-import "net/rpc"
-import "hash/fnv"
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
@@ -31,6 +31,33 @@ type ByKey []KeyValue
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
+// 快速地将string类型转化为[]byte类型
+// func quickS2B(str string) []byte {
+// 	base := *(*[2]uintptr)(unsafe.Pointer(&str))
+// 	return *(*[]byte)(unsafe.Pointer(&[3]uintptr{base[0], base[1], base[1]}))
+// }
+
+// // 快速地将[]byte转化为string类型
+// func quickB2S(bs []byte) string {
+// 	base := (*[3]uintptr)(unsafe.Pointer(&bs))
+// 	return *(*string)(unsafe.Pointer(&[2]uintptr{base[0], base[1]}))
+// }
+
+// // reduce任务完成时，需要将临时文件重命名（原子地）
+// func renameReduceOutFile(tmpf string, taskN int) error {
+// 	return os.Rename(tmpf, fmt.Sprintf("mr-out-%d", taskN))
+// }
+
+// // 拿到map worker里的中间文件
+// func getIntermediateFIle(nMapTasks, nReduceTasks int) string {
+// 	return fmt.Sprintf("mr-%d-%d", nMapTasks, nReduceTasks)
+// }
+
+// // 把map worker里的中间文件重命名（原子地）
+// func renameIntermediateFIle(tmpf string, nMapTasks, nReduceTasks int) error {
+// 	return os.Rename(tmpf, getIntermediateFIle(nMapTasks, nReduceTasks))
+// }
 
 func tmpMapOutFile(workId int, mapId int, reduceId int) string {
 	return fmt.Sprintf("tmp-worker-%d-%d-%d", workId, mapId, reduceId)
@@ -54,7 +81,6 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// Your worker implementation here.
 	id := os.Getpid()
-	log.Print("Worker %d start work: \n", id)
 	lastTaskId := -1
 	var lastTaskType TaskType
 	for {
@@ -65,6 +91,12 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 		reply := ApplyForTaskReply{}
 		call("Coordinator.ApplyForTask", &args, &reply)
+		// if reply.TaskType == TaskTypeMap {
+		// 	log.Printf("GetMasterReply! TaskTypeName:%d-%d, fileMapInput: %s, workId: %d\n", reply.TaskType, reply.TaskId, reply.MapInputFile, id)
+		// } else if reply.TaskType == TaskTypeReduce {
+		// 	log.Printf("GetMasterReply! TaskTypeName:%d-%d, workId: %d\n", reply.TaskType, reply.TaskId, id)
+		// }
+
 		switch reply.TaskType {
 		case TaskTypeUnknow:
 			log.Printf("All tasks are finished!")
@@ -77,7 +109,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		lastTaskId = reply.TaskId
 		lastTaskType = reply.TaskType
-		log.Printf("complete %s task %d", reply.TaskType, reply.TaskId)
+		log.Printf("complete task %d-%d", reply.TaskType, reply.TaskId)
 	}
 End:
 	log.Printf("Worker %d finished tasks\n", id)
@@ -88,6 +120,7 @@ End:
 
 func doMapTask(id int, ReplyMapTask ApplyForTaskReply, mapf func(string, string) []KeyValue) {
 	// read data
+	//log.Printf("do Map Task, TaskName: %d-%d\n", ReplyMapTask.TaskType, ReplyMapTask.TaskId)
 	file, err := os.Open(ReplyMapTask.MapInputFile)
 
 	if err != nil {
@@ -117,6 +150,7 @@ func doMapTask(id int, ReplyMapTask ApplyForTaskReply, mapf func(string, string)
 }
 
 func doReduceTask(id int, ReplyReduceTask ApplyForTaskReply, reducef func(string, []string) string) {
+	//log.Printf("do Reduce Task, TaskName: %d-%d\n", ReplyReduceTask.TaskType, ReplyReduceTask.TaskId)
 	var lines []string
 	for i := 0; i < ReplyReduceTask.NMap; i++ {
 		tmpfilename := finalMapOutFile(i, ReplyReduceTask.TaskId)
