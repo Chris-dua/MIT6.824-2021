@@ -57,7 +57,7 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 		c.mu.Lock()
 		LastTaskId := createTaskId(arg.LastTaskType, arg.LastTaskId)
 		if LastTask, ok := c.tasks[LastTaskId]; ok && LastTask.WorkId == arg.WorkId {
-			log.Printf("%d finish %s task", arg.WorkId, LastTaskId)
+			//log.Printf("%d finish %s task", arg.WorkId, LastTaskId)
 			if arg.LastTaskType == TaskTypeMap {
 				for i := 0; i < c.nReduce; i++ {
 					err := os.Rename(tmpMapOutFile(arg.WorkId, arg.LastTaskId, i), finalMapOutFile(arg.LastTaskId, i))
@@ -97,7 +97,7 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	taskIdName := createTaskId(task.TaskType, task.Id)
-	log.Printf("Assign %s task to work, the workId: %d \n", taskIdName, arg.WorkId)
+	//log.Printf("Assign %s task to work, the workId: %d \n", taskIdName, arg.WorkId)
 	// update tasks
 	task.WorkId = arg.WorkId
 	task.DeadLine = time.Now().Add(10 * time.Second)
@@ -113,7 +113,7 @@ func (c *Coordinator) ApplyForTask(arg *ApplyForTaskArgs, reply *ApplyForTaskRep
 func (c *Coordinator) cutover() {
 	if c.state == coodinatorStateMapFinished {
 		//log.Printf("The number of remaining tasks is %d\n", len(c.tasks))
-		log.Printf("All MAP tasks have already finished! REDUCE tasks begin ...")
+		//log.Printf("All MAP tasks have already finished! REDUCE tasks begin ...")
 		for i := 0; i < c.nReduce; i++ {
 			task := Task{
 				Id:       i,
@@ -124,7 +124,7 @@ func (c *Coordinator) cutover() {
 			c.toDoTasks <- task
 		}
 	} else if c.state == coodinatorStateFinished {
-		log.Printf("All Reduce tasks have already finished! Done...")
+		//log.Printf("All Reduce tasks have already finished! Done...")
 		close(c.toDoTasks)
 	}
 }
@@ -184,11 +184,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 			MapInputFile: file,
 			WorkId:       -1,
 		}
-		log.Printf("TaskId: %s, Type: %d,  MapTaskInuputFile: %s", createTaskId(task.TaskType, task.Id), task.TaskType, task.MapInputFile)
+		//log.Printf("TaskId: %s, Type: %d,  MapTaskInuputFile: %s", createTaskId(task.TaskType, task.Id), task.TaskType, task.MapInputFile)
 		c.tasks[createTaskId(task.TaskType, task.Id)] = task
 		c.toDoTasks <- task
 	}
-	log.Printf("Coordinator start\n")
+	//log.Printf("Coordinator start\n")
 	c.server()
 
 	go func() {

@@ -99,7 +99,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		switch reply.TaskType {
 		case TaskTypeUnknow:
-			log.Printf("All tasks are finished!")
+			//log.Printf("All tasks are finished!")
 			goto End
 		case TaskTypeMap:
 			doMapTask(id, reply, mapf)
@@ -109,10 +109,10 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		lastTaskId = reply.TaskId
 		lastTaskType = reply.TaskType
-		log.Printf("complete task %d-%d", reply.TaskType, reply.TaskId)
+		//log.Printf("complete task %d-%d", reply.TaskType, reply.TaskId)
 	}
 End:
-	log.Printf("Worker %d finished tasks\n", id)
+	//log.Printf("Worker %d finished tasks\n", id)
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
@@ -191,7 +191,7 @@ func doReduceTask(id int, ReplyReduceTask ApplyForTaskReply, reducef func(string
 			values = append(values, kva[k].Value)
 		}
 		output := reducef(kva[i].Key, values)
-		fmt.Fprintf(outFile, "%v %v \n", kva[i].Key, output)
+		fmt.Fprintf(outFile, "%v %v\n", kva[i].Key, output)
 		i = j
 	}
 	outFile.Close()
