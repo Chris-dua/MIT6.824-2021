@@ -20,12 +20,14 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 )
 
@@ -110,6 +112,12 @@ type AppendEntriesReply struct {
 	ConflictIndex int
 	ConfictTerm   int
 	ConflictLen   int
+}
+
+type PersistentStatus struct {
+	Logs        []Entry
+	CurrentTerm int
+	VotedFor    int
 }
 
 const (
@@ -203,6 +211,17 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	status := &PersistentStatus{
+		Logs:        rf.logs,
+		VotedFor:    rf.voteFor,
+		CurrentTerm: rf.currentTerm,
+	}
+	w := new(bytes.Buffer)
+	if err := labgob.NewEncoder(w).Encode(status); err != nil {
+		return
+	}
+	rf.persister.SaveRaftState(w.Bytes())
+
 }
 
 // restore previously persisted state.
@@ -223,6 +242,14 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	status := new(PersistentStatus)
+
+	if err := labgob.NewDecoder(bytes.NewBuffer(data)).Decode(status); err != nil {
+		return
+	}
+	rf.logs = status.Logs
+	rf.currentTerm = status.CurrentTerm
+	rf.voteFor = status.VotedFor
 }
 
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
@@ -266,7 +293,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	//defer rf.persist()
+	defer rf.persist()
 	/* defer DPrintf(
 	"{Node %v}'s state is {state %v, term %v, commitIndex %v, lastApplied %v, "+
 		"firstLog %v, lastLog %v} before processing requestVoteRequest %v and reply requestVoteResponse %v",
@@ -350,6 +377,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	if rf.state != StateLeader {
 		return -1, -1, false
@@ -417,8 +445,8 @@ func (rf *Raft) ticker() {
 func (rf *Raft) StartElection() {
 
 	// 候选者投自己一票
+	rf.persist()
 	grantedVote := 1
-	// rf.persist()
 	for peer := range rf.peers {
 		if peer == rf.me {
 			continue
@@ -451,7 +479,7 @@ func (rf *Raft) StartElection() {
 
 					rf.ChangeState(StateFollower)
 					rf.currentTerm, rf.voteFor = reply.Term, -1
-					//rf.persist()
+					rf.persist()
 				}
 			}
 		}(peer)
@@ -544,8 +572,9 @@ func (rf *Raft) sendAppendLogsToAll() {
 
 			if reply.Term > rf.currentTerm {
 				rf.currentTerm = reply.Term
-				// rf.voteFor = -1
+				rf.voteFor = -1
 				rf.ChangeState(StateFollower)
+				rf.persist()
 				return
 			}
 			// double check
@@ -603,6 +632,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// rpc handler 通常是并发，加锁
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 	//log.Printf("%d 在 term %d 收到 %d 的 AppendEntries request %+v", rf.me, rf.currentTerm, args.LeaderID, args)
 	// rpc handler 通用的规则: args 中 term 比 当前小，直接返回
 
@@ -736,7 +766,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		lastApplied:    0,
 	}
 	// Your initialization code here (2A, 2B, 2C).
-
+	//log.Printf("persister State %+v:", persister.ReadRaftState())
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 	//rf.applyCond = sync.NewCond(&rf.mu)
